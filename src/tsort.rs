@@ -3,7 +3,7 @@ use std::{collections::HashSet, hash::Hash};
 
 use crate::graph::Graph;
 
-pub(crate) fn tsort<T: Clone + Debug + Eq + Hash, F: FnMut(usize)>(
+pub(crate) fn tsort<T: Clone + Debug + Eq + Ord + Hash, F: FnMut(usize)>(
     graph: &Graph<T>,
     mut f: F,
 ) -> Result<(), HashSet<usize>> {

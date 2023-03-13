@@ -2,7 +2,7 @@ use std::{collections::VecDeque, hash::Hash};
 
 use crate::graph::Graph;
 
-pub(crate) fn bfs<T: Clone + Eq + Hash, F: FnMut(usize, usize, Option<usize>) -> bool>(
+pub(crate) fn bfs<T: Clone + Eq + Ord + Hash, F: FnMut(usize, usize, Option<usize>) -> bool>(
     graph: &Graph<T>,
     is: &[usize],
     mut f: F,
@@ -22,7 +22,7 @@ pub(crate) fn bfs<T: Clone + Eq + Hash, F: FnMut(usize, usize, Option<usize>) ->
     }
 }
 
-pub(crate) fn bfs_path<T: Clone + Eq + Hash, F: FnMut(&[usize]) -> bool>(
+pub(crate) fn bfs_path<T: Clone + Eq + Ord + Hash, F: FnMut(&[usize]) -> bool>(
     graph: &Graph<T>,
     is: &[usize],
     mut f: F,

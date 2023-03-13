@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     hash::Hash,
 };
 
@@ -13,13 +13,13 @@ impl<T: Clone> Edge<T> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Graph<T: Clone + Eq + Hash> {
+pub(crate) struct Graph<T: Clone + Eq + Ord + Hash> {
     pub(crate) values: Vec<T>,
     pub(crate) value_to_index: HashMap<T, usize>,
     pub(crate) deps: HashMap<usize, Vec<usize>>,
 }
 
-impl<T: Clone + Eq + Hash> Default for Graph<T> {
+impl<T: Clone + Eq + Ord + Hash> Default for Graph<T> {
     fn default() -> Self {
         Graph {
             values: Vec::new(),
@@ -29,7 +29,7 @@ impl<T: Clone + Eq + Hash> Default for Graph<T> {
     }
 }
 
-impl<T: Clone + Eq + Hash> FromIterator<Edge<T>> for Graph<T> {
+impl<T: Clone + Eq + Ord + Hash> FromIterator<Edge<T>> for Graph<T> {
     fn from_iter<I: IntoIterator<Item = Edge<T>>>(iter: I) -> Self {
         let mut graph = Graph::<T>::default();
         let mut seen: HashMap<T, usize> = HashMap::new();
@@ -59,7 +59,31 @@ impl<T: Clone + Eq + Hash> FromIterator<Edge<T>> for Graph<T> {
     }
 }
 
-impl<T: Clone + Eq + Hash> Graph<T> {
+impl<T: Clone + Eq + Ord + Hash> From<HashMap<T, Vec<T>>> for Graph<T> {
+    fn from(m: HashMap<T, Vec<T>>) -> Self {
+        let mut edges = Vec::<Edge<T>>::new();
+        for (k, vs) in m.iter() {
+            for v in vs.iter() {
+                edges.push(Edge(k.clone(), v.clone()));
+            }
+        }
+        Self::from_iter(edges)
+    }
+}
+
+impl<T: Clone + Eq + Ord + Hash> From<BTreeMap<T, Vec<T>>> for Graph<T> {
+    fn from(m: BTreeMap<T, Vec<T>>) -> Self {
+        let mut edges = Vec::<Edge<T>>::new();
+        for (k, vs) in m.iter() {
+            for v in vs.iter() {
+                edges.push(Edge(k.clone(), v.clone()));
+            }
+        }
+        Self::from_iter(edges)
+    }
+}
+
+impl<T: Clone + Eq + Ord + Hash> Graph<T> {
     pub(crate) fn find_roots(&self) -> Vec<usize> {
         let mut seen: HashSet<usize> = HashSet::new();
         for (_k, vs) in self.deps.iter() {
@@ -82,6 +106,18 @@ impl<T: Clone + Eq + Hash> Graph<T> {
             }
         }
         edges
+    }
+
+    pub(crate) fn to_btree_map(&self) -> BTreeMap<T, Vec<T>> {
+        self.deps
+            .iter()
+            .map(|(k, vs)| {
+                (
+                    self.values[*k].clone(),
+                    vs.iter().map(|v| self.values[*v].clone()).collect(),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn remap(&self, values: Vec<T>) -> Graph<T> {

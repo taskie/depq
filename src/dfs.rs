@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use crate::graph::Graph;
 
-pub(crate) fn dfs<T: Clone + Eq + Hash, F: FnMut(usize, usize, Option<usize>) -> bool>(
+pub(crate) fn dfs<T: Clone + Eq + Ord + Hash, F: FnMut(usize, usize, Option<usize>) -> bool>(
     graph: &Graph<T>,
     is: &[usize],
     mut f: F,
