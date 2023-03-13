@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::{rename, File},
+    fs::File,
     io::{stdin, stdout, BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     process::exit,
@@ -11,6 +11,7 @@ use clap::{self, Parser};
 use graph::{Edge, Graph};
 use itertools::Itertools;
 use log::{debug, warn};
+use tempfile::NamedTempFile;
 
 use crate::consts::DEFAULT_MAX_DEPTH;
 
@@ -45,10 +46,10 @@ enum InputFormat {
 
 impl InputFormat {
     fn assume_from_path(p: &Path) -> InputFormat {
-        if p.ends_with(".json") {
-            InputFormat::Json
-        } else {
-            InputFormat::Text
+        let Some(ext) = p.extension().map(|v| v.to_ascii_lowercase().to_string_lossy().to_string()) else { return InputFormat::Text };
+        match ext.as_str() {
+            "json" => InputFormat::Json,
+            _ => InputFormat::Text,
         }
     }
 }
@@ -62,12 +63,11 @@ enum OutputFormat {
 
 impl OutputFormat {
     fn assume_from_path(p: &Path) -> OutputFormat {
-        if p.ends_with(".json") {
-            OutputFormat::Json
-        } else if p.ends_with(".dot") {
-            OutputFormat::Dot
-        } else {
-            OutputFormat::Text
+        let Some(ext) = p.extension().map(|v| v.to_ascii_lowercase().to_string_lossy().to_string()) else { return OutputFormat::Text };
+        match ext.as_str() {
+            "json" => OutputFormat::Json,
+            "dot" => OutputFormat::Dot,
+            _ => OutputFormat::Text,
         }
     }
 }
@@ -80,6 +80,8 @@ struct ShowArgs {
     inverted: bool,
     #[clap(short, long, value_enum)]
     to: Option<OutputFormat>,
+    #[clap(short, long)]
+    output: Option<PathBuf>,
     #[clap(name = "FILE", default_value = "-")]
     file: PathBuf,
 }
@@ -151,6 +153,7 @@ fn load_with_path(p: &Path, format: Option<InputFormat>) -> Result<Graph<String>
         .as_ref()
         .cloned()
         .unwrap_or_else(|| InputFormat::assume_from_path(p));
+    debug!("input format: {:?}", format);
     if p == Path::new("-") {
         let stdin_lock = stdin().lock();
         let r = BufReader::new(stdin_lock);
@@ -179,7 +182,9 @@ fn dump_dot<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
             format!(
                 "    n{} [label=\"{}\"];\n",
                 i,
-                n.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+                n.replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace('\n', "\\n")
             )
             .as_bytes(),
         )?;
@@ -192,8 +197,9 @@ fn dump_dot<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
     Ok(())
 }
 
-fn dump_json<W: Write>(w: W, graph: Graph<String>) -> Result<()> {
-    serde_json::to_writer(w, &graph.to_btree_map()).context("can't dump json")
+fn dump_json<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
+    serde_json::to_writer(&mut w, &graph.to_btree_map()).context("can't dump json")?;
+    w.write_all(b"\n").context("can't dump json")
 }
 
 fn dump<W: Write>(w: W, graph: Graph<String>, format: OutputFormat) -> Result<()> {
@@ -213,19 +219,19 @@ fn dump_with_path<P: AsRef<Path>>(
         .as_ref()
         .cloned()
         .unwrap_or_else(|| OutputFormat::assume_from_path(p.as_ref()));
+    debug!("output format: {:?}", format);
     if p.as_ref() == Path::new("-") {
         let stdout_lock = stdout().lock();
         let w = BufWriter::new(stdout_lock);
         dump(w, graph, format)
     } else {
-        let mut swp = PathBuf::from(p.as_ref());
-        swp.push(".swp");
+        let swp = NamedTempFile::new_in(p.as_ref().parent().unwrap())?;
         {
             let f = File::create(&swp)?;
             let w = BufWriter::new(f);
             dump(w, graph, format)?
         }
-        rename(&swp, p)?;
+        swp.persist(p)?;
         Ok(())
     }
 }
@@ -233,10 +239,11 @@ fn dump_with_path<P: AsRef<Path>>(
 fn show(_args: &Args, subargs: &ShowArgs) -> Result<()> {
     let graph = load_with_path(&subargs.file, subargs.from.clone())?;
     debug!("{:?}", graph);
+    let output = subargs.output.clone().unwrap_or_else(|| "-".into());
     if subargs.inverted {
-        dump_with_path("-", graph.invert(), subargs.to.clone())?;
+        dump_with_path(output, graph.invert(), subargs.to.clone())?;
     } else {
-        dump_with_path("-", graph, subargs.to.clone())?;
+        dump_with_path(output, graph, subargs.to.clone())?;
     }
     Ok(())
 }
