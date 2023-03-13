@@ -97,6 +97,17 @@ impl<T: Clone + Eq + Ord + Hash> Graph<T> {
         roots
     }
 
+    pub(crate) fn to_index_edges(&self) -> Vec<Edge<usize>> {
+        let mut edges = vec![];
+        for (from, _) in self.values.iter().enumerate() {
+            let Some(tos) = self.deps.get(&from) else { continue; };
+            for to in tos {
+                edges.push(Edge(from, *to))
+            }
+        }
+        edges
+    }
+
     pub(crate) fn to_edges(&self) -> Vec<Edge<T>> {
         let mut edges = vec![];
         for (from, k) in self.values.iter().enumerate() {

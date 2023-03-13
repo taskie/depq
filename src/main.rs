@@ -38,17 +38,36 @@ enum Subcommand {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
-enum Format {
+enum InputFormat {
     Text,
     Json,
 }
 
-impl Format {
-    fn assume_from_path(p: &Path) -> Format {
+impl InputFormat {
+    fn assume_from_path(p: &Path) -> InputFormat {
         if p.ends_with(".json") {
-            Format::Json
+            InputFormat::Json
         } else {
-            Format::Text
+            InputFormat::Text
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+    Dot,
+}
+
+impl OutputFormat {
+    fn assume_from_path(p: &Path) -> OutputFormat {
+        if p.ends_with(".json") {
+            OutputFormat::Json
+        } else if p.ends_with(".dot") {
+            OutputFormat::Dot
+        } else {
+            OutputFormat::Text
         }
     }
 }
@@ -56,17 +75,19 @@ impl Format {
 #[derive(Debug, Clone, clap::Args)]
 struct ShowArgs {
     #[clap(short, long, value_enum)]
-    from: Option<Format>,
+    from: Option<InputFormat>,
     #[clap(short = 'I', long)]
     inverted: bool,
     #[clap(short, long, value_enum)]
-    to: Option<Format>,
+    to: Option<OutputFormat>,
     #[clap(name = "FILE", default_value = "-")]
     file: PathBuf,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 struct DfsArgs {
+    #[clap(short, long, value_enum)]
+    from: Option<InputFormat>,
     #[clap(short = 'P', long)]
     path: bool,
     #[clap(short = 'S', long)]
@@ -81,6 +102,8 @@ struct DfsArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct BfsArgs {
+    #[clap(short, long, value_enum)]
+    from: Option<InputFormat>,
     #[clap(short = 'P', long)]
     path: bool,
     #[clap(short = 'S', long)]
@@ -93,6 +116,8 @@ struct BfsArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct TsortArgs {
+    #[clap(short, long, value_enum)]
+    from: Option<InputFormat>,
     #[clap(name = "FILE", default_value = "-")]
     file: PathBuf,
 }
@@ -114,18 +139,18 @@ fn load_json<R: BufRead>(r: R) -> Result<Graph<String>> {
     Ok(Graph::from(deps))
 }
 
-fn load<R: BufRead>(r: R, format: Format) -> Result<Graph<String>> {
+fn load<R: BufRead>(r: R, format: InputFormat) -> Result<Graph<String>> {
     match format {
-        Format::Text => load_text(r),
-        Format::Json => load_json(r),
+        InputFormat::Text => load_text(r),
+        InputFormat::Json => load_json(r),
     }
 }
 
-fn load_with_path(p: &Path, format: Option<Format>) -> Result<Graph<String>> {
+fn load_with_path(p: &Path, format: Option<InputFormat>) -> Result<Graph<String>> {
     let format = format
         .as_ref()
         .cloned()
-        .unwrap_or_else(|| Format::assume_from_path(p));
+        .unwrap_or_else(|| InputFormat::assume_from_path(p));
     if p == Path::new("-") {
         let stdin_lock = stdin().lock();
         let r = BufReader::new(stdin_lock);
@@ -147,26 +172,47 @@ fn dump_text<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
     Ok(())
 }
 
+fn dump_dot<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
+    w.write_all(b"digraph {\n")?;
+    for (i, n) in graph.values.iter().enumerate() {
+        w.write_all(
+            format!(
+                "    n{} [label=\"{}\"];\n",
+                i,
+                n.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+            )
+            .as_bytes(),
+        )?;
+    }
+    w.write_all(b"\n")?;
+    for e in graph.to_index_edges() {
+        w.write_all(format!("    n{} -> n{};\n", e.0, e.1).as_bytes())?;
+    }
+    w.write_all(b"}\n")?;
+    Ok(())
+}
+
 fn dump_json<W: Write>(w: W, graph: Graph<String>) -> Result<()> {
     serde_json::to_writer(w, &graph.to_btree_map()).context("can't dump json")
 }
 
-fn dump<W: Write>(w: W, graph: Graph<String>, format: Format) -> Result<()> {
+fn dump<W: Write>(w: W, graph: Graph<String>, format: OutputFormat) -> Result<()> {
     match format {
-        Format::Text => dump_text(w, graph),
-        Format::Json => dump_json(w, graph),
+        OutputFormat::Text => dump_text(w, graph),
+        OutputFormat::Json => dump_json(w, graph),
+        OutputFormat::Dot => dump_dot(w, graph),
     }
 }
 
 fn dump_with_path<P: AsRef<Path>>(
     p: P,
     graph: Graph<String>,
-    format: Option<Format>,
+    format: Option<OutputFormat>,
 ) -> Result<()> {
     let format = format
         .as_ref()
         .cloned()
-        .unwrap_or_else(|| Format::assume_from_path(p.as_ref()));
+        .unwrap_or_else(|| OutputFormat::assume_from_path(p.as_ref()));
     if p.as_ref() == Path::new("-") {
         let stdout_lock = stdout().lock();
         let w = BufWriter::new(stdout_lock);
@@ -196,7 +242,7 @@ fn show(_args: &Args, subargs: &ShowArgs) -> Result<()> {
 }
 
 fn dfs(_args: &Args, subargs: &DfsArgs) -> Result<()> {
-    let graph = load_with_path(&subargs.file, None)?;
+    let graph = load_with_path(&subargs.file, subargs.from.clone())?;
     let is = match &subargs.start {
         Some(k) => vec![graph.value_to_index[k]],
         None => graph.find_roots(),
@@ -230,7 +276,7 @@ fn dfs(_args: &Args, subargs: &DfsArgs) -> Result<()> {
 }
 
 fn bfs(_args: &Args, subargs: &BfsArgs) -> Result<()> {
-    let graph = load_with_path(&subargs.file, None)?;
+    let graph = load_with_path(&subargs.file, subargs.from.clone())?;
     let is = match &subargs.start {
         Some(k) => vec![graph.value_to_index[k]],
         None => graph.find_roots(),
@@ -258,7 +304,7 @@ fn bfs(_args: &Args, subargs: &BfsArgs) -> Result<()> {
 }
 
 fn tsort(_args: &Args, subargs: &TsortArgs) -> Result<()> {
-    let graph = load_with_path(&subargs.file, None)?;
+    let graph = load_with_path(&subargs.file, subargs.from.clone())?;
     let result = tsort::tsort(&graph, |t| {
         println!("{}", graph.values[t]);
     });
