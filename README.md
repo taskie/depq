@@ -1,6 +1,8 @@
 # depq
 
-## Usage
+![Example](images/example.gif)
+
+## Examples
 
 ### Show
 
