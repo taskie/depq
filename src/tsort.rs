@@ -7,7 +7,6 @@ pub(crate) fn tsort<T: Clone + Debug + Eq + Ord + Hash, F: FnMut(usize)>(
     graph: &Graph<T>,
     mut f: F,
 ) -> Result<(), HashSet<usize>> {
-    eprintln!("values: {:?}", graph.values);
     let mut deps = graph.deps.clone();
     let mut rdeps = graph.invert().remap(graph.values.clone()).deps;
     let mut stack = graph.find_roots();
