@@ -82,6 +82,10 @@ struct ShowArgs {
     to: Option<OutputFormat>,
     #[clap(short, long)]
     output: Option<PathBuf>,
+    #[clap(short = 'R', long)]
+    dot_rankdir: Option<String>,
+    #[clap(long)]
+    dot_metadata: Option<String>,
     #[clap(name = "FILE", default_value = "-")]
     file: PathBuf,
 }
@@ -175,19 +179,20 @@ fn dump_text<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
     Ok(())
 }
 
-fn dump_dot<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
+fn dot_quote(s: &str) -> String {
+    serde_json::to_string(s).expect("can't serialize")
+}
+
+fn dump_dot<W: Write>(mut w: W, graph: Graph<String>, subargs: &ShowArgs) -> Result<()> {
     w.write_all(b"digraph {\n")?;
+    if let Some(metadata) = subargs.dot_metadata.as_ref() {
+        w.write_all(format!("{}\n", metadata).as_bytes())?;
+    }
+    if let Some(rankdir) = subargs.dot_rankdir.as_ref() {
+        w.write_all(format!("    rankdir={};\n\n", dot_quote(rankdir)).as_bytes())?;
+    }
     for (i, n) in graph.values.iter().enumerate() {
-        w.write_all(
-            format!(
-                "    n{} [label=\"{}\"];\n",
-                i,
-                n.replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-                    .replace('\n', "\\n")
-            )
-            .as_bytes(),
-        )?;
+        w.write_all(format!("    n{} [label={}];\n", i, dot_quote(n)).as_bytes())?;
     }
     w.write_all(b"\n")?;
     for e in graph.to_index_edges() {
@@ -202,20 +207,22 @@ fn dump_json<W: Write>(mut w: W, graph: Graph<String>) -> Result<()> {
     w.write_all(b"\n").context("can't dump json")
 }
 
-fn dump<W: Write>(w: W, graph: Graph<String>, format: OutputFormat) -> Result<()> {
+fn dump<W: Write>(
+    w: W,
+    graph: Graph<String>,
+    format: OutputFormat,
+    subargs: &ShowArgs,
+) -> Result<()> {
     match format {
         OutputFormat::Text => dump_text(w, graph),
         OutputFormat::Json => dump_json(w, graph),
-        OutputFormat::Dot => dump_dot(w, graph),
+        OutputFormat::Dot => dump_dot(w, graph, subargs),
     }
 }
 
-fn dump_with_path<P: AsRef<Path>>(
-    p: P,
-    graph: Graph<String>,
-    format: Option<OutputFormat>,
-) -> Result<()> {
-    let format = format
+fn dump_with_path<P: AsRef<Path>>(p: P, graph: Graph<String>, subargs: &ShowArgs) -> Result<()> {
+    let format = subargs
+        .to
         .as_ref()
         .cloned()
         .unwrap_or_else(|| OutputFormat::assume_from_path(p.as_ref()));
@@ -223,13 +230,13 @@ fn dump_with_path<P: AsRef<Path>>(
     if p.as_ref() == Path::new("-") {
         let stdout_lock = stdout().lock();
         let w = BufWriter::new(stdout_lock);
-        dump(w, graph, format)
+        dump(w, graph, format, subargs)
     } else {
         let swp = NamedTempFile::new_in(p.as_ref().parent().unwrap())?;
         {
             let f = File::create(&swp)?;
             let w = BufWriter::new(f);
-            dump(w, graph, format)?
+            dump(w, graph, format, subargs)?
         }
         swp.persist(p)?;
         Ok(())
@@ -241,9 +248,9 @@ fn show(_args: &Args, subargs: &ShowArgs) -> Result<()> {
     debug!("{:?}", graph);
     let output = subargs.output.clone().unwrap_or_else(|| "-".into());
     if subargs.inverted {
-        dump_with_path(output, graph.invert(), subargs.to.clone())?;
+        dump_with_path(output, graph.invert(), subargs)?;
     } else {
-        dump_with_path(output, graph, subargs.to.clone())?;
+        dump_with_path(output, graph, subargs)?;
     }
     Ok(())
 }
