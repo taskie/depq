@@ -1,5 +1,8 @@
 # depq
 
+[![ci](https://github.com/taskie/depq/actions/workflows/ci.yml/badge.svg)](https://github.com/taskie/depq/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/taskie/depq/branch/main/graph/badge.svg?token=30L4GSEJUD)](https://codecov.io/gh/taskie/depq)
+
 ![Example](images/example.gif)
 
 ## Examples
